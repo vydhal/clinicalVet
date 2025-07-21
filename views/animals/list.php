@@ -1,0 +1,298 @@
+<?php
+/**
+ * Lista de Animais
+ * Sistema Veterinário
+ */
+
+// Iniciar sessão
+session_start();
+
+// Configurações inline
+define('SITE_NAME', 'Sistema Veterinário');
+define('DB_HOST', 'localhost');
+define('DB_NAME', 'u324919422_veterinario');
+define('DB_USER', 'u324919422_vet_admin');
+define('DB_PASS', 'Vydhal@112358');
+
+// Função para verificar se está logado
+function isLoggedIn() {
+    return isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
+}
+
+// Verificar autenticação
+if (!isLoggedIn()) {
+    header("Location: ../../index.php?error=login_required");
+    exit();
+}
+
+// Obter dados do usuário logado
+$current_user = [
+    'id' => $_SESSION['user_id'],
+    'name' => $_SESSION['user_name'],
+    'email' => $_SESSION['user_email'],
+    'type' => $_SESSION['user_type'],
+    'clinic_id' => $_SESSION['clinic_id'] ?? null,
+    'clinic_name' => $_SESSION['clinic_name'] ?? null
+];
+
+// Conectar ao banco e buscar animais
+$animals = [];
+$search = isset($_GET['search']) ? trim($_GET['search']) : '';
+
+try {
+    $pdo = new PDO("mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4", DB_USER, DB_PASS);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    $sql = "SELECT a.*, t.nome_tutor, t.telefone_tutor, e.nome_especie 
+            FROM animais a 
+            LEFT JOIN tutores t ON a.id_tutor = t.id_tutor 
+            LEFT JOIN especies e ON a.id_especie = e.id_especie 
+            WHERE a.ativo = 1";
+    
+    $params = [];
+    
+    // Filtrar por clínica se não for superadmin
+    if ($current_user['type'] !== 'superadmin') {
+        $sql .= " AND a.id_clinica = ?";
+        $params[] = $current_user['clinic_id'];
+    }
+    
+    // Filtrar por busca se fornecida
+    if (!empty($search)) {
+        $sql .= " AND (a.nome_animal LIKE ? OR t.nome_tutor LIKE ? OR a.id_animal = ?)";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+        $params[] = $search;
+    }
+    
+    $sql .= " ORDER BY a.nome_animal ASC";
+    
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $animals = $stmt->fetchAll();
+
+} catch(PDOException $e) {
+    $error_message = "Erro ao buscar animais: " . $e->getMessage();
+}
+?>
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php echo SITE_NAME; ?> - Lista de Animais</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        body { background-color: #f8f9fa; }
+        .sidebar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .sidebar .nav-link {
+            color: rgba(255, 255, 255, 0.8);
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin: 0.25rem 0;
+        }
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .animal-photo {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 px-0">
+                <div class="sidebar p-3">
+                    <div class="text-center mb-4">
+                        <i class="fas fa-paw fa-2x mb-2"></i>
+                        <h5><?php echo SITE_NAME; ?></h5>
+                        <small><?php echo htmlspecialchars($current_user['name']); ?></small><br>
+                        <small class="text-muted"><?php echo ucfirst($current_user['type']); ?></small>
+                    </div>
+                    
+                    <nav class="nav flex-column">
+                        <a class="nav-link" href="../dashboard.php">
+                            <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+                        </a>
+                        
+                        <a class="nav-link active" href="list.php">
+                            <i class="fas fa-paw me-2"></i>Animais
+                        </a>
+                        
+                        <a class="nav-link" href="../tutors/list.php">
+                            <i class="fas fa-users me-2"></i>Tutores
+                        </a>
+                        
+                        <a class="nav-link" href="../consultations/list.php">
+                            <i class="fas fa-stethoscope me-2"></i>Consultas
+                        </a>
+                        
+                        <?php if ($current_user['type'] === 'admin' || $current_user['type'] === 'superadmin'): ?>
+                        <a class="nav-link" href="../admin/users.php">
+                            <i class="fas fa-user-md me-2"></i>Usuários
+                        </a>
+                        <?php endif; ?>
+                        
+                        <hr class="my-3">
+                        
+                        <a class="nav-link" href="../../logout.php">
+                            <i class="fas fa-sign-out-alt me-2"></i>Sair
+                        </a>
+                    </nav>
+                </div>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="col-md-9 col-lg-10">
+                <div class="p-4">
+                    <!-- Header -->
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="fas fa-paw me-2"></i>Lista de Animais</h2>
+                        <a href="add.php" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>Cadastrar Animal
+                        </a>
+                    </div>
+                    
+                    <!-- Search -->
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <form method="GET" class="row g-3">
+                                <div class="col-md-8">
+                                    <input type="text" class="form-control" name="search" 
+                                           placeholder="Buscar por nome do animal, tutor ou ID..." 
+                                           value="<?php echo htmlspecialchars($search); ?>">
+                                </div>
+                                <div class="col-md-4">
+                                    <button type="submit" class="btn btn-outline-primary me-2">
+                                        <i class="fas fa-search me-1"></i>Buscar
+                                    </button>
+                                    <?php if (!empty($search)): ?>
+                                    <a href="list.php" class="btn btn-outline-secondary">
+                                        <i class="fas fa-times me-1"></i>Limpar
+                                    </a>
+                                    <?php endif; ?>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <!-- Results -->
+                    <?php if (isset($error_message)): ?>
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <?php echo htmlspecialchars($error_message); ?>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="fas fa-list me-2"></i>
+                                <?php echo count($animals); ?> animal(is) encontrado(s)
+                                <?php if (!empty($search)): ?>
+                                    para "<?php echo htmlspecialchars($search); ?>"
+                                <?php endif; ?>
+                            </h5>
+                        </div>
+                        <div class="card-body p-0">
+                            <?php if (empty($animals)): ?>
+                                <div class="text-center p-5">
+                                    <i class="fas fa-paw fa-3x text-muted mb-3"></i>
+                                    <h5 class="text-muted">Nenhum animal encontrado</h5>
+                                    <p class="text-muted">
+                                        <?php if (!empty($search)): ?>
+                                            Tente uma busca diferente ou 
+                                        <?php endif; ?>
+                                        <a href="add.php">cadastre o primeiro animal</a>
+                                    </p>
+                                </div>
+                            <?php else: ?>
+                                <div class="table-responsive">
+                                    <table class="table table-hover mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Foto</th>
+                                                <th>Nome</th>
+                                                <th>Espécie</th>
+                                                <th>Raça</th>
+                                                <th>Tutor</th>
+                                                <th>Telefone</th>
+                                                <th>Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($animals as $animal): ?>
+                                            <tr>
+                                                <td><strong>#<?php echo $animal['id_animal']; ?></strong></td>
+                                                <td>
+                                                    <?php if (!empty($animal['foto_animal'])): ?>
+                                                        <img src="../../uploads/animals/<?php echo htmlspecialchars($animal['foto_animal']); ?>" 
+                                                             class="animal-photo" alt="Foto do animal">
+                                                    <?php else: ?>
+                                                        <div class="animal-photo bg-secondary d-flex align-items-center justify-content-center">
+                                                            <i class="fas fa-paw text-white"></i>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td>
+                                                    <strong><?php echo htmlspecialchars($animal['nome_animal']); ?></strong><br>
+                                                    <small class="text-muted">
+                                                        <?php echo ucfirst($animal['sexo']); ?> • 
+                                                        <?php echo htmlspecialchars($animal['porte']); ?>
+                                                    </small>
+                                                </td>
+                                                <td><?php echo htmlspecialchars($animal['nome_especie'] ?? 'N/A'); ?></td>
+                                                <td><?php echo htmlspecialchars($animal['raca'] ?? 'N/A'); ?></td>
+                                                <td><?php echo htmlspecialchars($animal['nome_tutor'] ?? 'N/A'); ?></td>
+                                                <td><?php echo htmlspecialchars($animal['telefone_tutor'] ?? 'N/A'); ?></td>
+                                                <td>
+                                                    <div class="btn-group btn-group-sm">
+                                                        <a href="view.php?id=<?php echo $animal['id_animal']; ?>" 
+                                                           class="btn btn-outline-primary" title="Ver detalhes">
+                                                            <i class="fas fa-eye"></i>
+                                                        </a>
+                                                        <a href="edit.php?id=<?php echo $animal['id_animal']; ?>" 
+                                                           class="btn btn-outline-warning" title="Editar">
+                                                            <i class="fas fa-edit"></i>
+                                                        </a>
+                                                        <a href="../consultations/add.php?animal_id=<?php echo $animal['id_animal']; ?>" 
+                                                           class="btn btn-outline-success" title="Nova consulta">
+                                                            <i class="fas fa-stethoscope"></i>
+                                                        </a>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
